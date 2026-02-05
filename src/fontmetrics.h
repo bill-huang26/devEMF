@@ -309,7 +309,6 @@ struct SSysFontInfo {
                      afmPathDB["Helvetica"][m_Spec.m_Face-1] + ".gz").
                     c_str(), m_Spec.m_Size, true);
         } else {
-          //Rf_warning("Testing message: local loading AFM is '%s'",  m_Spec.m_Family.c_str());
             LoadAFM((packagePath+"/afm/" +
                      afmPathDB[m_Spec.m_Family][m_Spec.m_Face-1] + ".gz").
                     c_str(), m_Spec.m_Size, true);

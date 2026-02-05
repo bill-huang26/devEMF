@@ -4,13 +4,13 @@ Title: EMF Graphics Output Device
 Version: 4.5-2
 Date: 2025-03-24
 Authors@R: c(
-  person(given = "Philip",
-                    family = "Johnson",
-                    role = c("aut", "cre"),
-                    email = "plfj@umd.edu",
-                    comment = c(ORCID = "0000-0001-6087-7064")),
-  person("Bill", "Huang", email = "Bill.Huang@Toastmasters.org.tw", role = c("ctb"))
-)
+            person(given = "Philip",
+                              family = "Johnson",
+                              role = c("aut", "cre"),
+                              email = "plfj@umd.edu",
+                              comment = c(ORCID = "0000-0001-6087-7064")),
+            person("Bill", "Huang", email = "bhuang08@agmen.com", role = c("aut"))
+            )
 Depends: R (>= 2.10.1)
 SystemRequirements: fontconfig or zlib (only needed for platforms other than modern OSX and Windows)
 Description: Output graphics to EMF+/EMF.
