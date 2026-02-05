@@ -214,6 +214,11 @@ struct SSysFontInfo {
             afmPathDB["Symbol"].push_back("Symbol-ucs.afm");
             afmPathDB["Symbol"].push_back("Symbol-ucs.afm");
             afmPathDB["Symbol"].push_back("Symbol-ucs.afm");
+            afmPathDB["Arial"].push_back("Arial-ucs.afm");
+            afmPathDB["Arial"].push_back("Arial-Bold-ucs.afm");
+            afmPathDB["Arial"].push_back("Arial-Oblique-ucs.afm");
+            afmPathDB["Arial"].push_back("Arial-BoldOblique-ucs.afm");
+            
 
             //find full path to package using R "findPackage" function
             SEXP findPackage, call;
@@ -231,52 +236,63 @@ struct SSysFontInfo {
             packagePath = CHAR(STRING_ELT(res, 0));
         }
 #endif
+
 #ifdef HAVE_FONTCONFIG
-        m_FontInfo = NULL;
-
-        FcPattern *pattern = FcPatternBuild
-            (NULL,
-             FC_FAMILY, FcTypeString, m_Spec.m_Family.c_str(),
-             FC_PIXEL_SIZE, FcTypeInteger, m_Spec.m_Size,
-             FC_SLANT, FcTypeInteger, (m_Spec.m_Face == 3  ||
-                                       m_Spec.m_Face == 4 ?
-                                       FC_SLANT_ITALIC :
-                                       FC_SLANT_ROMAN),
-             FC_WEIGHT, FcTypeInteger, (m_Spec.m_Face == 2  ||
-                                        m_Spec.m_Face == 4 ?
-                                        FC_WEIGHT_BOLD :
-                                        FC_WEIGHT_MEDIUM),
-             NULL);
-        FcConfigSubstitute(m_Fontconfig.m_FCconfig, pattern, FcMatchPattern);
-        FcDefaultSubstitute(pattern);
-        FcResult res;
-        FcPattern *font = FcFontMatch(m_Fontconfig.m_FCconfig, pattern, &res);
-        if (res == FcResultMatch) {
-            char *family;
-            FcPatternGetString(font, FC_FAMILY, 0, (FcChar8**)&family);
-            if (m_Spec.m_Family != family) {
-                Rf_warning("devEMF: your system substituted font family '%s' when you requested '%s'",
-                           family, m_Spec.m_Family.c_str());
-            }
-
-            //load actual font face
-            char* filename;
-            int index;
-            bool fontLoaded = (FcPatternGetString(font, FC_FILE, 0, (FcChar8**)&filename) == FcResultMatch  &&
-                               FcPatternGetInteger(font, FC_INDEX, 0, &index) == FcResultMatch &&
-                               FT_New_Face(m_Fontconfig.m_FTlibrary, filename, index, &m_FontInfo) == 0);
-            FcPatternDestroy(pattern);
-            FcPatternDestroy(font);
-            if (fontLoaded) {
-                FT_Matrix transform; //flip glyph y axis to match emf's coord system
-                transform.xx = 65536; transform.xy = 0;
-                transform.yx = 0; transform.yy = -65536;
-                FT_Set_Transform(m_FontInfo, &transform, NULL);
-                FT_Set_Pixel_Sizes(m_FontInfo, m_Spec.m_Size, 0);
-                return;
-            }
+    m_FontInfo = NULL;
+    
+    // 20260205: If Fontconfig doesn't have the font, jump to AFM
+    bool useFontconfig = true;
+    if (afmPathDB.find(m_Spec.m_Family) != afmPathDB.end() &&
+        afmPathDB[m_Spec.m_Family].size() >= m_Spec.m_Face) {
+      useFontconfig = false;
+    }
+    
+    if (useFontconfig) {
+      FcPattern *pattern = FcPatternBuild
+      (NULL,
+       FC_FAMILY, FcTypeString, m_Spec.m_Family.c_str(),
+       FC_PIXEL_SIZE, FcTypeInteger, m_Spec.m_Size,
+       FC_SLANT, FcTypeInteger, (m_Spec.m_Face == 3  ||
+         m_Spec.m_Face == 4 ?
+         FC_SLANT_ITALIC :
+                                   FC_SLANT_ROMAN),
+                                   FC_WEIGHT, FcTypeInteger, (m_Spec.m_Face == 2  ||
+                                     m_Spec.m_Face == 4 ?
+                                     FC_WEIGHT_BOLD :
+                                                                FC_WEIGHT_MEDIUM),
+                                                                NULL);
+      FcConfigSubstitute(m_Fontconfig.m_FCconfig, pattern, FcMatchPattern);
+      FcDefaultSubstitute(pattern);
+      FcResult res;
+      FcPattern *font = FcFontMatch(m_Fontconfig.m_FCconfig, pattern, &res);
+      if (res == FcResultMatch) {
+        char *family;
+        FcPatternGetString(font, FC_FAMILY, 0, (FcChar8**)&family);
+        if (m_Spec.m_Family != family) {
+          Rf_warning("devEMF: your system substituted font family '%s' when you requested '%s'",
+                     family, m_Spec.m_Family.c_str());
         }
+        
+        //load actual font face
+        char* filename;
+        int index;
+        bool fontLoaded = (FcPatternGetString(font, FC_FILE, 0, (FcChar8**)&filename) == FcResultMatch  &&
+                           FcPatternGetInteger(font, FC_INDEX, 0, &index) == FcResultMatch &&
+                           FT_New_Face(m_Fontconfig.m_FTlibrary, filename, index, &m_FontInfo) == 0);
+        FcPatternDestroy(pattern);
+        FcPatternDestroy(font);
+        if (fontLoaded) {
+          FT_Matrix transform; //flip glyph y axis to match emf's coord system
+          transform.xx = 65536; transform.xy = 0;
+          transform.yx = 0; transform.yy = -65536;
+          FT_Set_Transform(m_FontInfo, &transform, NULL);
+          FT_Set_Pixel_Sizes(m_FontInfo, m_Spec.m_Size, 0);
+          return;
+        }
+      }
+    }
 #endif
+
 #ifdef HAVE_ZLIB
         if (afmPathDB.find(m_Spec.m_Family) == afmPathDB.end()  ||
             afmPathDB[m_Spec.m_Family].size() < m_Spec.m_Face) {
@@ -293,6 +309,7 @@ struct SSysFontInfo {
                      afmPathDB["Helvetica"][m_Spec.m_Face-1] + ".gz").
                     c_str(), m_Spec.m_Size, true);
         } else {
+          //Rf_warning("Testing message: local loading AFM is '%s'",  m_Spec.m_Family.c_str());
             LoadAFM((packagePath+"/afm/" +
                      afmPathDB[m_Spec.m_Family][m_Spec.m_Face-1] + ".gz").
                     c_str(), m_Spec.m_Size, true);
@@ -320,59 +337,76 @@ struct SSysFontInfo {
 
 #ifdef HAVE_ZLIB
     void LoadAFM(const std::string &filename, int size, bool loadFontBBox) {
-        typedef std::map<std::string, unsigned int> TName2Code;
-        TName2Code name2code;
-        const unsigned int buffsize = 512;
-        char buff[buffsize];
-        gzFile afm = gzopen(filename.c_str(), "rb");
-        while (gzgets(afm, buff, buffsize)) {
-            std::stringstream iss(buff);
-            std::string key;
-            iss >> key;
-            if (key == "FontBBox"  &&  loadFontBBox) {
-                iss >> m_AFMFontBBox.llx >> m_AFMFontBBox.lly
-                    >> m_AFMFontBBox.urx >> m_AFMFontBBox.ury;
-                m_AFMFontBBox.ascent = m_AFMFontBBox.ury * 0.001 * size;
-                m_AFMFontBBox.descent = -m_AFMFontBBox.lly * 0.001 * size;
-                m_AFMFontBBox.width = (m_AFMFontBBox.urx-m_AFMFontBBox.llx)
-                    * 0.001 * size;
-            } else if (key == "C") {
-                SCharMetric cMetric;
-                iss >> std::hex >> cMetric.code >> std::dec >> key;
-                while (iss.good()) {
-                    if (key == "WX") {
-                        iss >> cMetric.wx;
-                        cMetric.advance = cMetric.wx * 0.001 * size;
-                    } else if (key == "N") {
-                        iss >> cMetric.name;
-                    } else if (key == "B") {
-                        iss >> cMetric.llx >> cMetric.lly
-                            >> cMetric.urx >> cMetric.ury;
-                        cMetric.ascent = cMetric.ury * 0.001 * size;
-                        cMetric.descent = -cMetric.lly * 0.001 * size;
-                        cMetric.width = (cMetric.urx-cMetric.llx) * 0.001 * size;
-                    }
-                    iss >> key;
-                }
-                if (m_AFMCharMetrics.find(cMetric.code) ==
-                    m_AFMCharMetrics.end()) {
-                    m_AFMCharMetrics[cMetric.code] = cMetric;
-                    name2code[cMetric.name] = cMetric.code;
-                }
-            } else if (key == "KPX") {
-                std::string name1, name2;
-                iss >> name1 >> name2;
-                TName2Code::const_iterator ch1 = name2code.find(name1);
-                TName2Code::const_iterator ch2 = name2code.find(name2);
-                if (ch1 != name2code.end()  &&
-                    ch2 != name2code.end()) {
-                    int kern;
-                    iss >> kern;
-                    m_AFMKerningTable[SCharPair(ch1->second, ch2->second)] = kern * 0.001 * size;
-                }
+      typedef std::map<std::string, unsigned int> TName2Code;
+      TName2Code name2code;
+      const unsigned int buffsize = 512;
+      char buff[buffsize];
+      gzFile afm = gzopen(filename.c_str(), "rb");
+      
+      while (gzgets(afm, buff, buffsize)) {
+        std::stringstream iss(buff);
+        std::string key;
+        iss >> key;
+        
+        if (key == "FontBBox" && loadFontBBox) {
+          iss >> m_AFMFontBBox.llx >> m_AFMFontBBox.lly
+              >> m_AFMFontBBox.urx >> m_AFMFontBBox.ury;
+          m_AFMFontBBox.ascent = m_AFMFontBBox.ury * 0.001 * size;
+          m_AFMFontBBox.descent = -m_AFMFontBBox.lly * 0.001 * size;
+          m_AFMFontBBox.width = (m_AFMFontBBox.urx-m_AFMFontBBox.llx)* 0.001 * size;
+        } else if (key == "C") {
+          SCharMetric cMetric;
+          // 20260205 Update for reading in decimal for Arial
+          // Read character code strings and automatically determine
+          std::string codeStr;
+          iss >> codeStr;
+          
+          // Determine whether the number is hexadecimal (with leading zeros) or decimal.
+          if (codeStr.length() > 1 && codeStr[0] == '0' && 
+              (codeStr[1] >= '0' && codeStr[1] <= '9')) {
+            // Hexadecimal format (e.g., 0020, 002A)
+            std::stringstream(codeStr) >> std::hex >> cMetric.code;
+          } else {
+            // Decimal format (e.g., 32, 42)
+            std::stringstream(codeStr) >> std::dec >> cMetric.code;
+          }
+          
+          iss >> key; // Read ";" 
+          
+          while (iss >> key) {
+            if (key == "WX") {
+              iss >> cMetric.wx;
+              cMetric.advance = cMetric.wx * 0.001 * size;
+            } else if (key == "N") {
+              iss >> cMetric.name;
+            } else if (key == "B") {
+              iss >> cMetric.llx >> cMetric.lly
+                  >> cMetric.urx >> cMetric.ury;
+              cMetric.ascent = cMetric.ury * 0.001 * size;
+              cMetric.descent = -cMetric.lly * 0.001 * size;
+              cMetric.width = (cMetric.urx-cMetric.llx) * 0.001 * size;
             }
+          }
+          
+          if (m_AFMCharMetrics.find(cMetric.code) ==
+              m_AFMCharMetrics.end()) {
+            m_AFMCharMetrics[cMetric.code] = cMetric;
+            name2code[cMetric.name] = cMetric.code;
+          }
+        } else if (key == "KPX") {
+          std::string name1, name2;
+          iss >> name1 >> name2;
+          TName2Code::const_iterator ch1 = name2code.find(name1);
+          TName2Code::const_iterator ch2 = name2code.find(name2);
+          if (ch1 != name2code.end() &&
+              ch2 != name2code.end()) {
+            int kern;
+            iss >> kern;
+            m_AFMKerningTable[SCharPair(ch1->second, ch2->second)] = kern * 0.001 * size;
+          }
         }
-        gzclose(afm);
+      }
+      gzclose(afm);
     }
 #endif
 
